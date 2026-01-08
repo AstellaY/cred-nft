@@ -16,10 +16,9 @@ class XRPLCredentialManager:
         self.client = JsonRpcClient(endpoint)
 
     def validate_address(self, address: str) -> Optional[str]:
-        """Cleans and validates XRPL addresses to prevent checksum errors."""
+        """Cleans and validates XRPL addresses."""
         if not address: return None
         try:
-            # Removes hidden characters, spaces, and tabs
             clean_addr = "".join(c for c in str(address) if c.isalnum())
             addresscodec.decode_classic_address(clean_addr)
             return clean_addr
@@ -27,7 +26,7 @@ class XRPLCredentialManager:
             return None
 
     def generate_faucet_wallet(self):
-        """Creates a new wallet and funds it with 1,000 Test XRP automatically."""
+        """Creates and funds a new testnet wallet."""
         return generate_faucet_wallet(self.client, debug=True)
 
     def get_balance(self, address: str) -> str:
@@ -51,7 +50,7 @@ class XRPLCredentialManager:
                 continue
 
             try:
-                # 1. Mint NFT
+                # 1. Mint NFT (Flags=9 allows Issuer to burn even after student accepts)
                 mint_tx = NFTokenMint(
                     account=issuer_wallet.classic_address, 
                     uri=uri_hex, 
@@ -62,7 +61,7 @@ class XRPLCredentialManager:
                 nft_id = self._extract_nft_id(mint_res.result["meta"])
                 
                 if nft_id:
-                    # 2. Create Sell Offer (Price 0)
+                    # 2. Create Sell Offer
                     offer_tx = NFTokenCreateOffer(
                         account=issuer_wallet.classic_address, 
                         nftoken_id=nft_id, 
@@ -98,7 +97,6 @@ class XRPLCredentialManager:
         except: return []
 
     def get_nft_image_url(self, hex_uri: str) -> Optional[str]:
-        """Decodes the Hex URI to an IPFS image link."""
         if not hex_uri: return None
         try:
             plain_str = binascii.unhexlify(hex_uri).decode('utf-8')
@@ -119,9 +117,17 @@ class XRPLCredentialManager:
             return {"issuer": issuer_addr, "status": "Verified Authentic"}
         except: return {"status": "Invalid ID"}
 
-    def burn_credential(self, seed: str, nftoken_id: str):
+    def burn_credential(self, seed: str, nftoken_id: str, owner_address: Optional[str] = None):
+        """
+        Burn/Revoke logic. If owner_address is provided, the Issuer burns 
+        the NFT from the student's account.
+        """
         wallet = Wallet.from_seed(seed.strip())
-        burn_tx = NFTokenBurn(account=wallet.classic_address, nftoken_id=nftoken_id)
+        burn_tx = NFTokenBurn(
+            account=wallet.classic_address, 
+            nftoken_id=nftoken_id.strip(),
+            owner=owner_address.strip() if owner_address else None
+        )
         return xrpl.transaction.submit_and_wait(burn_tx, self.client, wallet).result
 
     def _extract_nft_id(self, meta: Dict) -> Optional[str]:

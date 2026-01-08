@@ -7,7 +7,7 @@ from xrpl_utils import XRPLCredentialManager
 xrpl_manager = XRPLCredentialManager()
 st.set_page_config(page_title="Institutional Registrar", layout="wide")
 
-# Session state for automatic wallet storage
+# Session state
 if "issuer_seed" not in st.session_state: st.session_state.issuer_seed = ""
 if "students" not in st.session_state: st.session_state.students = ""
 
@@ -72,29 +72,45 @@ with tab2:
             for nft in nfts:
                 with st.container(border=True):
                     c_img, c_txt = st.columns([1, 3])
-                    img_url = xrpl_manager.get_nft_image_url(nft.get("URI"))
-                    if img_url: 
-                        c_img.image(img_url, use_container_width=True)
-                    else: 
-                        c_img.write("No Image Found")
                     
-                    c_txt.write(f"**NFTokenID:** `{nft.get('NFTokenID')}`")
+                    # Updated to use direct URL to ensure it displays correctly
+                    cert_image_url = "https://raw.githubusercontent.com/fomomodigital/image-host/main/importance_of_certifications.png"
+                    c_img.image(cert_image_url, use_container_width=True)
+                    
+                    nft_id = nft.get('NFTokenID')
+                    c_txt.write(f"**NFTokenID:** `{nft_id}`")
                     c_txt.write(f"**Issuer:** `{nft.get('Issuer')}`")
+                    
+                    if c_txt.button("📋 Copy to Revoke Tab", key=nft_id):
+                        st.session_state.revoke_id = nft_id
+                        st.session_state.revoke_owner = search
+                        st.success("Copied to Tab 3!")
         else:
             st.info("No credentials found for this wallet.")
 
 with tab3:
     st.header("🔍 Verification & Revocation")
-    v_id = st.text_input("Enter NFTokenID to Verify")
+    v_id = st.text_input("Enter NFTokenID to Verify", value=st.session_state.get("revoke_id", ""))
+    v_owner = st.text_input("Current Owner (Student Address)", value=st.session_state.get("revoke_owner", ""))
+    
     if v_id and st.button("Verify Authenticity"):
         st.json(xrpl_manager.verify_credential(v_id))
     
     st.divider()
     st.subheader("🔥 Revoke Credential")
+    st.warning("Issuer Revocation requires the 'Current Owner' address if the student has accepted the NFT.")
+    
     if v_id and st.button("Permanently Burn NFT", type="primary"):
         try:
-            res = xrpl_manager.burn_credential(st.session_state.issuer_seed, v_id)
-            st.success("Burn Transaction Successful")
+            # Passing v_owner to fix the tecNO_ENTRY error
+            res = xrpl_manager.burn_credential(st.session_state.issuer_seed, v_id, owner_address=v_owner)
+            
+            # Check for success in the response metadata
+            result_code = res.get("meta", {}).get("TransactionResult", "Unknown")
+            if result_code == "tesSUCCESS":
+                st.success("🔥 Credential successfully revoked from the ledger!")
+            else:
+                st.error(f"Transaction Result: {result_code}")
             st.json(res)
         except Exception as e:
             st.error(f"Failed: {e}")
